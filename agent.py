@@ -1,21 +1,8 @@
 from google import genai
-from config import GEMINI_API_KEY
-
-# prompt = input("Enter the prompt you want to give(keep it short pls):")
-
-
-# client = genai.Client(api_key=GEMINI_API_KEY) 
-# response = client.models.generate_content(
-#     model="gemini-2.5-flash", contents=prompt
-# )
-
-# print(response.text)
-
-class SimpleAIAgent:
+class SimpleAgent:
     def __init__(self, api_key):
         self.api_key = api_key
         self.knowledge_base = self._load_knowledge("data/knowledge.txt")
-        print(f"Agent initialized with API Key: {'*' * len(api_key)}")
 
     def _load_knowledge(self, path):
         try:
@@ -34,7 +21,15 @@ class SimpleAIAgent:
             import datetime
             return f"The current time is {datetime.datetime.now().strftime('%H:%M:%S')}."
         elif "who are you" in user_input.lower():
-            return "I am a simple AI agent designed to assist you."
+            return "I am a simple AI agent designed by Prashun Kumar to assist you."
         else:
             # In a real agent, you'd send this to an LLM
-            return f"I received your input: '{user_input}'. I'm still learning how to respond to that."
+            response = self.call_llm(user_input)
+            return response.text
+        
+    def call_llm(self, user_input):
+        client = genai.Client(api_key=self.api_key) 
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=user_input) 
+        return response
+
+        
