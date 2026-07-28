@@ -1,4 +1,7 @@
 from google import genai
+
+
+
 class SimpleAgent:
     def __init__(self, api_key):
         self.api_key = api_key
