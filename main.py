@@ -1,10 +1,12 @@
 from pathlib import Path
 
-from agent import SimpleAgent
 import os
 from dotenv import load_dotenv
 
-load_dotenv() # Load variables from .env
+from rag_agent import RAGAgent
+
+load_dotenv()  # Load variables from .env
+
 
 def main():
     api_key = os.getenv("GEMINI_API_KEY")
@@ -12,15 +14,20 @@ def main():
         print("Error: GEMINI_API_KEY not found in .env")
         return
 
-    agent = SimpleAgent(api_key=api_key)
-    print("Agent is ready. Type 'exit' to quit.")
+    print("Building RAG index from data/ ...")
+    agent = RAGAgent(api_key=api_key)
+
+    print("\nRAG Agent is ready. Ask questions about your knowledge base.")
+    print("Type 'exit' to quit.\n")
+
     while True:
         user_input = input("Your prompt: ")
-        if user_input.lower() == 'exit':
+        if user_input.lower() == "exit":
             break
         response = agent.process_input(user_input)
         _save_response(response)
-        print(f"Agent: {response}")
+        print(f"\nAgent: {response}\n")
+
 
 def _save_response(response):
     try:
