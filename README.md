@@ -1,149 +1,188 @@
-# Simple RAG Agent
+# Enterprise Knowledge Assistant
 
-A beginner-friendly **RAG (Retrieval-Augmented Generation)** agent built with Python, LangChain, and Google Gemini.
+A production-style **RAG agent** that answers questions from your company documents.  
+Designed for **open-source models** with flexible **local (Ollama)** or **cloud (Gemini/Groq)** execution.
 
-## What is RAG?
-
-A normal LLM only knows what it was trained on. **RAG** lets it answer questions about **your** documents by:
-
-1. **Retrieval** — Search your documents for chunks related to the question
-2. **Augmentation** — Add those chunks to the prompt as context
-3. **Generation** — Ask the LLM to answer using that context
+## Architecture
 
 ```
-  ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-  │ Your docs   │────▶│ Vector store │◀────│  Embeddings │
-  │ (data/*.txt)│     │  (in-memory) │     │   (Gemini)  │
-  └─────────────┘     └──────┬───────┘     └─────────────┘
-                             │
-  User question ──▶ RETRIEVE relevant chunks
-                             │
-                             ▼
-                    AUGMENT prompt with context
-                             │
-                             ▼
-                    GENERATE answer (Gemini LLM)
+                    ┌─────────────────────────────────────┐
+                    │         .env configuration          │
+                    │  LLM_PROVIDER / EMBEDDING_PROVIDER  │
+                    └─────────────────┬───────────────────┘
+                                      │
+          ┌───────────────────────────┼───────────────────────────┐
+          │                           │                           │
+    ┌─────▼─────┐              ┌──────▼──────┐             ┌──────▼──────┐
+    │  Ollama   │              │   Gemini    │             │    Groq     │
+    │  (local)  │              │   (cloud)   │             │   (cloud)   │
+    │ llama3.2  │              │ gemini-flash│             │ llama-3.3   │
+    │ nomic-emb │              │ gemini-emb  │             │  (LLM only) │
+    └─────┬─────┘              └──────┬──────┘             └──────┬──────┘
+          │                           │                           │
+          └───────────────────────────┼───────────────────────────┘
+                                      │
+                    ┌─────────────────▼───────────────────┐
+                    │   Enterprise Knowledge Assistant    │
+                    │  Index → Retrieve → Augment → Gen   │
+                    └─────────────────┬───────────────────┘
+                                      │
+              ┌───────────────────────┼───────────────────────┐
+              │                       │                       │
+      data/documents/           chroma_db/              Answer + Citations
+      (.txt .md .pdf)
 ```
 
 ## Project Structure
 
-| File | Purpose |
-|------|---------|
-| `main.py` | Entry point — starts the chat loop |
-| `rag_agent.py` | RAG pipeline (retrieve → augment → generate) |
-| `tool/langchainloader.py` | Loads docs, splits chunks, builds vector index |
-| `data/knowledge.txt` | Sample knowledge base (add your own `.txt` files here) |
-| `agent.py` | Original simple agent (no RAG) — kept for comparison |
-| `.env` | Your `GEMINI_API_KEY` (never commit this) |
+```
+simpleAgent/
+├── main.py                    # CLI (chat, index, info)
+├── api/server.py              # FastAPI REST API
+├── config/
+│   ├── settings.py            # Load config from .env
+│   └── providers.py           # LLM + embedding factories
+├── knowledge/
+│   ├── loader.py              # Load txt/md/pdf documents
+│   └── indexer.py             # Chunk + store in Chroma
+├── assistant/
+│   └── agent.py               # RAG pipeline with citations
+├── data/documents/            # Your knowledge base files
+├── chroma_db/                 # Persistent vector store (auto-created)
+├── .env.example               # Config template with presets
+└── docker-compose.yml         # Optional Ollama container
+```
 
-## Setup
+## Quick Start
 
-1. Clone and enter the project:
-
-   ```bash
-   git clone <your-repo-url>
-   cd simpleAgent
-   ```
-
-2. Create a virtual environment (recommended):
-
-   ```bash
-   python -m venv venv
-   source venv/bin/activate   # Windows: venv\Scripts\activate
-   ```
-
-3. Install dependencies:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Get a free Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
-
-5. Create a `.env` file in the project root:
-
-   ```env
-   GEMINI_API_KEY="your-api-key-here"
-   ```
-
-## How to Run
+### 1. Setup
 
 ```bash
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+# Edit .env with your API keys and provider choice
+```
+
+### 2. Add documents
+
+Put your files in `data/documents/` (`.txt`, `.md`, `.pdf`).
+
+A sample file is included: `data/documents/company_knowledge.md`
+
+### 3. Run
+
+```bash
+# Check active providers
+python main.py info
+
+# Index documents
+python main.py index --rebuild
+
+# Start chat
 python main.py
 ```
 
-On startup the agent indexes all `.txt` files in `data/`, then you can ask questions.
+## Model Provider Presets
 
-### Example questions
+Switch providers in `.env` — no code changes needed.
 
-- "What is RAG and how does it work?"
-- "What files are in this project?"
-- "Which Gemini models does this project use?"
+### Preset 1: Fully local (open-source, private)
 
-Type `exit` to quit.
+```env
+LLM_PROVIDER=ollama
+EMBEDDING_PROVIDER=ollama
+```
 
-## How It Works (Step by Step)
+```bash
+# Start Ollama (install from https://ollama.com or use docker-compose)
+docker compose up -d ollama
+ollama pull llama3.2:3b
+ollama pull nomic-embed-text
+```
 
-### 1. Indexing (happens once at startup)
+### Preset 2: Hybrid — local embeddings + Groq LLM
 
-Defined in `tool/langchainloader.py`:
+Fast cloud inference with open-source Llama, local embedding search:
 
-- Load `.txt` files from `data/`
-- Split text into ~500-character chunks (with overlap so sentences aren't cut awkwardly)
-- Convert each chunk to a **vector** (embedding) using `models/gemini-embedding-2`
-- Store vectors in an in-memory search index
+```env
+LLM_PROVIDER=groq
+EMBEDDING_PROVIDER=ollama
+GROQ_API_KEY=your-key
+```
 
-### 2. Retrieval (per question)
+Get a free Groq key: https://console.groq.com
 
-Defined in `rag_agent.py` → `_retrieve()`:
+### Preset 3: All cloud Gemini (easiest)
 
-- Your question is also embedded
-- The index finds the **3 most similar** chunks (cosine similarity)
+```env
+LLM_PROVIDER=gemini
+EMBEDDING_PROVIDER=gemini
+GEMINI_API_KEY=your-key
+```
 
-### 3. Augmentation (per question)
+Get a free Gemini key: https://aistudio.google.com/apikey
 
-Defined in `rag_agent.py` → `_build_prompt()`:
+## CLI Commands
 
-- Retrieved chunks are inserted into a prompt template
-- The LLM is instructed to answer **only** from that context
+| Command | Description |
+|---------|-------------|
+| `python main.py` | Interactive chat (auto-indexes if empty) |
+| `python main.py index` | Index documents (skips if already indexed) |
+| `python main.py index --rebuild` | Wipe and re-index all documents |
+| `python main.py info` | Show active LLM and embedding providers |
 
-### 4. Generation (per question)
+In chat, type `reindex` to rebuild the index, `exit` to quit.
 
-Defined in `rag_agent.py` → `process_input()`:
+## REST API
 
-- The augmented prompt is sent to `gemini-2.5-flash`
-- The model returns an answer grounded in your documents
+```bash
+uvicorn api.server:app --reload
+```
 
-## Adding Your Own Knowledge
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/config` | GET | Active model providers |
+| `/index?rebuild=false` | POST | Index documents |
+| `/ask` | POST | Ask a question |
 
-1. Add any `.txt` file to the `data/` folder
-2. Restart `python main.py` (re-indexing happens on startup)
-3. Ask questions about your new content
+Example:
 
-> `data/result.txt` is ignored — it's only used to save the last agent response.
+```bash
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What model providers are supported?"}'
+```
 
-## Models Used
+## How RAG Works Here
 
-| Role | Model | Why |
-|------|-------|-----|
-| Embeddings | `models/gemini-embedding-2` | Converts text to vectors for search |
-| Chat / Generation | `gemini-2.5-flash` | Fast, capable LLM for answers |
+1. **Index** — Documents are split into chunks and embedded into Chroma
+2. **Retrieve** — Your question finds the top-K most similar chunks
+3. **Augment** — Chunks are added to the prompt with source labels
+4. **Generate** — The LLM answers using only that context
+5. **Cite** — Sources are returned with relevance scores
 
-Both use the same `GEMINI_API_KEY` from Google AI Studio (free tier available).
+## Open-Source Model Recommendations
 
-## Compare: RAG vs Simple Agent
+| Role | Local (Ollama) | Cloud (Groq) |
+|------|----------------|--------------|
+| Fast chat | `llama3.2:3b` | `llama-3.1-8b-instant` |
+| Better quality | `qwen2.5:7b` | `llama-3.3-70b-versatile` |
+| Embeddings | `nomic-embed-text` | Use Ollama or Gemini |
 
-| | `agent.py` (Simple) | `rag_agent.py` (RAG) |
-|---|---|---|
-| Knowledge source | One static file, barely used | Searched dynamically per question |
-| LLM context | Just your question | Question + relevant document chunks |
-| Best for | Greetings, demos | Q&A over your own documents |
+## Legacy Files
 
-Run the original agent by changing the import in `main.py` from `RAGAgent` to `SimpleAgent`.
+| File | Purpose |
+|------|---------|
+| `rag_agent.py` | Original simple RAG tutorial (in-memory, Gemini only) |
+| `agent.py` | Original rule-based agent |
 
-## Next Steps (when you're ready)
+## Next Steps for Your Portfolio
 
-- Add more documents to `data/`
-- Tune `chunk_size` and `TOP_K` in the code
-- Try a persistent vector DB (Chroma, FAISS) instead of in-memory
-- Add conversation memory so follow-up questions work
+- [ ] Add PDF upload via API
+- [ ] Add evaluation script with test Q&A pairs
+- [ ] Add Langfuse tracing for observability
+- [ ] Deploy with Docker + Render/Fly.io
+- [ ] Add conversation memory for follow-up questions

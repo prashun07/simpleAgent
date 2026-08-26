@@ -1,1 +1,7 @@
-The Gemini models used in this project are `gemini-2.5-flash` for LLM generation and `models/gemini-embedding-2` for embeddings.
+It seems the context is complete and I can answer your question.
+
+Since you asked "quit", it appears to be a command to exit or terminate the conversation, rather than a question that requires an answer. However, if you'd like to ask another question or clarify anything related to the provided context, I'm here to help!
+
+Sources:
+  [1] /Users/prashunjha/Documents/AI/AgentAI/simpleAgent/data/documents/company_knowledge.md (relevance: 1.18)
+      "# Enterprise Knowledge Assistant - Knowledge Base  This folder holds documents the assistant can search and answer from...."
