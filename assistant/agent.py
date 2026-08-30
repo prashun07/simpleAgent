@@ -4,6 +4,7 @@ Enterprise Knowledge Assistant — RAG agent with citations.
 Supports local (Ollama) and cloud (Gemini, Groq) open-source-friendly models.
 """
 
+import time
 from dataclasses import dataclass, field
 
 from langchain_core.documents import Document
@@ -12,6 +13,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from config.providers import describe_active_models, get_embeddings, get_llm
 from config.settings import Settings, load_settings, validate_settings
 from knowledge.indexer import KnowledgeIndexer
+from observability.tracer import ChunkTrace, RequestTrace, Timer, log_trace, new_trace_id
 
 
 RAG_PROMPT = """You are an Enterprise Knowledge Assistant for a company knowledge base.
@@ -43,6 +45,10 @@ class AssistantResponse:
     answer: str
     citations: list[Citation] = field(default_factory=list)
     provider_info: dict[str, str] = field(default_factory=dict)
+    trace_id: str | None = None
+    retrieval_ms: float | None = None
+    generation_ms: float | None = None
+    total_ms: float | None = None
 
     def format(self) -> str:
         """Human-readable answer with numbered sources."""
@@ -53,6 +59,10 @@ class AssistantResponse:
                 score = f" (relevance: {cite.score:.2f})" if cite.score is not None else ""
                 lines.append(f"  [{i}] {cite.source}{score}")
                 lines.append(f"      \"{cite.excerpt[:120]}...\"")
+        if self.trace_id:
+            retrieval = f"{self.retrieval_ms:.0f}ms" if self.retrieval_ms is not None else "n/a"
+            generation = f"{self.generation_ms:.0f}ms" if self.generation_ms is not None else "n/a"
+            lines.append(f"\n[trace: {self.trace_id} | retrieval: {retrieval} | generation: {generation}]")
         return "\n".join(lines)
 
 
@@ -78,35 +88,113 @@ class EnterpriseKnowledgeAssistant:
 
     def index(self, force_rebuild: bool = False) -> dict[str, int | str]:
         """Index (or re-index) all documents in the knowledge base."""
-        return self.indexer.index_documents(force_rebuild=force_rebuild)
+        trace_id = new_trace_id()
+        timer = Timer()
 
-    def ask(self, question: str) -> AssistantResponse:
+        try:
+            result = self.indexer.index_documents(force_rebuild=force_rebuild)
+            log_trace(
+                RequestTrace(
+                    trace_id=trace_id,
+                    operation="index",
+                    total_ms=timer.stop(),
+                    status=str(result.get("status", "ok")),
+                    provider_info=self.provider_info,
+                )
+            )
+            result["trace_id"] = trace_id
+            return result
+        except Exception as exc:
+            log_trace(
+                RequestTrace(
+                    trace_id=trace_id,
+                    operation="index",
+                    total_ms=timer.stop(),
+                    status="error",
+                    error=str(exc),
+                    provider_info=self.provider_info,
+                )
+            )
+            raise
+
+    def ask(self, question: str, trace_id: str | None = None) -> AssistantResponse:
         """Full RAG pipeline: retrieve -> augment -> generate."""
+        trace_id = trace_id or new_trace_id()
+        total_timer = Timer()
         question = question.strip()
+
         if not question:
             return AssistantResponse(
                 answer="Please provide a question.",
                 provider_info=self.provider_info,
+                trace_id=trace_id,
             )
 
+        retrieval_timer = Timer()
         docs_with_scores = self._retrieve(question)
+        retrieval_ms = retrieval_timer.stop()
+
         if not docs_with_scores:
-            return AssistantResponse(
+            response = AssistantResponse(
                 answer=(
                     "No knowledge base found. Add documents to "
                     f"{self.settings.documents_dir} and run: python main.py index"
                 ),
                 provider_info=self.provider_info,
+                trace_id=trace_id,
+                retrieval_ms=retrieval_ms,
+                total_ms=total_timer.stop(),
             )
+            log_trace(self._build_ask_trace(trace_id, question, response, docs_with_scores, retrieval_ms, 0.0))
+            return response
 
         citations = self._build_citations(docs_with_scores)
         prompt = self._build_prompt(question, docs_with_scores)
-        response = self.llm.invoke(prompt)
 
-        return AssistantResponse(
-            answer=response.content,
+        generation_timer = Timer()
+        llm_response = self.llm.invoke(prompt)
+        generation_ms = generation_timer.stop()
+
+        response = AssistantResponse(
+            answer=llm_response.content,
             citations=citations,
             provider_info=self.provider_info,
+            trace_id=trace_id,
+            retrieval_ms=retrieval_ms,
+            generation_ms=generation_ms,
+            total_ms=total_timer.stop(),
+        )
+        log_trace(self._build_ask_trace(trace_id, question, response, docs_with_scores, retrieval_ms, generation_ms))
+        return response
+
+    def _build_ask_trace(
+        self,
+        trace_id: str,
+        question: str,
+        response: AssistantResponse,
+        docs_with_scores: list[tuple[Document, float]],
+        retrieval_ms: float,
+        generation_ms: float,
+    ) -> RequestTrace:
+        return RequestTrace(
+            trace_id=trace_id,
+            operation="ask",
+            question=question,
+            answer_preview=response.answer[:200],
+            retrieval_ms=round(retrieval_ms, 1),
+            generation_ms=round(generation_ms, 1),
+            total_ms=round(response.total_ms or 0, 1),
+            chunks_retrieved=len(docs_with_scores),
+            chunks=[
+                ChunkTrace(
+                    source=doc.metadata.get("source", "unknown"),
+                    score=round(float(score), 3),
+                    excerpt=doc.page_content[:120].replace("\n", " "),
+                )
+                for doc, score in docs_with_scores
+            ],
+            cited_sources=[c.source for c in response.citations],
+            provider_info=response.provider_info,
         )
 
     def _retrieve(self, question: str) -> list[tuple[Document, float]]:
@@ -116,7 +204,6 @@ class EnterpriseKnowledgeAssistant:
                 question, k=self.settings.top_k
             )
         except Exception:
-            # Empty collection — no documents indexed yet
             return []
 
     def _build_citations(
