@@ -1,0 +1,62 @@
+[
+  {
+    "id": "rag_definition",
+    "question": "What is RAG?",
+    "expected_keywords": ["retrieval", "augment", "generation"],
+    "expected_source_contains": "company_knowledge.md",
+    "must_refuse": false
+  },
+  {
+    "id": "local_setup",
+    "question": "How do I run fully local with Ollama?",
+    "expected_keywords": ["ollama", "LLM_PROVIDER"],
+    "expected_source_contains": "company_knowledge.md",
+    "must_refuse": false
+  },
+  {
+    "id": "supported_formats",
+    "question": "What file formats can I add to the knowledge base?",
+    "expected_keywords": ["txt", "md", "pdf"],
+    "expected_source_contains": "company_knowledge.md",
+    "must_refuse": false
+  },
+  {
+    "id": "rag_steps",
+    "question": "What are the three steps of RAG?",
+    "expected_keywords": ["retrieval", "augment", "generation"],
+    "expected_source_contains": "company_knowledge.md",
+    "must_refuse": false
+  },
+  {
+    "id": "add_documents",
+    "question": "How do I add new documents to the knowledge base?",
+    "expected_keywords": ["data/documents", "index"],
+    "expected_source_contains": "company_knowledge.md",
+    "must_refuse": false
+  },
+  {
+    "id": "model_providers",
+    "question": "What model providers does this project support?",
+    "expected_keywords": ["ollama", "gemini"],
+    "expected_source_contains": "company_knowledge.md",
+    "must_refuse": false
+  },
+  {
+    "id": "unknown_question",
+    "question": "What is the company's annual revenue in 2024?",
+    "expected_keywords": [],
+    "expected_source_contains": null,
+    "must_refuse": true,
+    "refusal_phrases": [
+      "don't have",
+      "do not have",
+      "not contain",
+      "not in",
+      "no information",
+      "insufficient",
+      "cannot find",
+      "can't find",
+      "unable to find"
+    ]
+  }
+]

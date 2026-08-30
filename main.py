@@ -6,6 +6,8 @@ Usage:
   python main.py index        # index documents into Chroma
   python main.py index --rebuild   # wipe and re-index
   python main.py info         # show active model providers
+  python main.py eval         # run RAG evaluation suite
+  python main.py eval -v      # verbose per-question output
 """
 
 import argparse
@@ -14,9 +16,11 @@ from pathlib import Path
 
 from assistant.agent import EnterpriseKnowledgeAssistant
 from config.settings import load_settings, validate_settings
+from observability.tracer import setup_logging
 
 
 def main():
+    setup_logging(load_settings().log_level)
     parser = argparse.ArgumentParser(
         description="Enterprise Knowledge Assistant — RAG with local or cloud models"
     )
@@ -29,11 +33,26 @@ def main():
     )
     subparsers.add_parser("info", help="Show active LLM and embedding providers")
 
+    eval_parser = subparsers.add_parser("eval", help="Run RAG evaluation test suite")
+    eval_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Show per-question details"
+    )
+    eval_parser.add_argument(
+        "--test-file",
+        type=Path,
+        default=None,
+        help="Path to custom test cases JSON (default: eval/test_cases.json)",
+    )
+
     args = parser.parse_args()
     command = args.command or "chat"
 
     if command == "info":
         _show_info()
+        return
+
+    if command == "eval":
+        _run_eval(verbose=args.verbose, test_file=args.test_file)
         return
 
     try:
@@ -48,6 +67,21 @@ def main():
         return
 
     _run_chat(assistant)
+
+
+def _run_eval(verbose: bool = False, test_file: Path | None = None):
+    from eval.runner import run_evaluation
+
+    print("Running RAG evaluation...")
+    try:
+        report = run_evaluation(test_file=test_file, verbose=verbose)
+    except (ValueError, RuntimeError) as exc:
+        print(f"Evaluation error: {exc}")
+        sys.exit(1)
+
+    print(report.format_summary())
+    if report.passed < report.total:
+        sys.exit(1)
 
 
 def _show_info():

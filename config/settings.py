@@ -70,6 +70,14 @@ class Settings:
     chunk_overlap: int
     top_k: int
 
+    # --- API authentication ---
+    api_auth_enabled: bool
+    api_read_key: str | None
+    api_admin_key: str | None
+
+    # --- Observability ---
+    log_level: str
+
 
 def load_settings() -> Settings:
     llm_provider = os.getenv("LLM_PROVIDER", "gemini").lower()
@@ -106,6 +114,10 @@ def load_settings() -> Settings:
         chunk_size=int(os.getenv("CHUNK_SIZE", "500")),
         chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "50")),
         top_k=int(os.getenv("TOP_K", "4")),
+        api_auth_enabled=os.getenv("API_AUTH_ENABLED", "true").lower() == "true",
+        api_read_key=_clean_api_key(os.getenv("API_READ_KEY")),
+        api_admin_key=_clean_api_key(os.getenv("API_ADMIN_KEY")),
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
     )
 
 
